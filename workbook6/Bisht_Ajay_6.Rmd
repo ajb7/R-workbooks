@@ -1,0 +1,224 @@
+---
+title: "DA5020 - Week 6 Assignment Tidy and Relational Data Operations"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+  word_document: default
+date: "`r Sys.Date()`"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  # mute messages output
+  message = FALSE
+)
+```
+
+
+### Github
+https://github.com/ajb7/R-workbooks/tree/master/workbook6
+
+### Read the data
+
+```{r, results = "hide"}
+# Installing dplyr library and importing dataset
+# using read.csv to read csv data and read_excel to read data from xls file
+#install.packages("dplyr")
+library("dplyr")
+library("stringr")
+library("lubridate")
+library("tidyverse")
+
+setwd("D:/UNIVERSITY/Assignments/DA 5020/Assignments/hw6")
+edu <- read.csv("FipsEducationsDA5020.csv", header = T, sep = ",")
+unemp <- read.csv("FipsUnemploymentDA5020.csv", header = T, sep = ",")
+```
+
+
+## Questions
+
+1. (20 points) Download the unemployment and education data files from blackboard and save the files to your working directory folder. Load both the unemployment data and the education data into R. Review the education data. Identify where variable names are actually values for a specific variable. Identify when multiple rows are data for the same entity. Identify when specific columns contain more than one atomic value. Tidy up the education data using spread, gather and separate. 
+
+Answer:
+In education dataset, FIPS column represents each county. We observe that multiple rows have same FIPS values. This means, multiple rows are same entity. The only difference is in percent_measure and percent value. County_State column contains concatenated value of County and State. That is, the column/variable does not represent a specific value.
+
+We can tidy up the data in following steps:
+Step 1: Seperate county and state names using "seperate"
+Step 2: Use "spread"", to convert percent_measure and percent values into specific variables
+```{r warning=FALSE}
+
+edu_spread <- spread(edu, key = percent_measure, value = percent)
+
+edu_spread_sep <- separate(edu_spread, county_state, into = c("state", "county"))
+```
+
+
+2. (15 points) Break apart the education data into three distinct tibbles. One tibble named education contains the education data, another tibble named fips, contains the fips number definition, and the third tibble named rural_urban_code contains the textual description of the 9 different urban to rural data descriptions. These three tibbles must be linked together to represent the relationships between the tibbles. For example, the fips table will contain 3,192 rows, where each row represents the definition of a fips number (County, State). Each row in the education table will contain the educational attainment of a spcific county. It also will contain a fips number since this data is specific to a county within a state. 
+
+Answer: In our dataset, each row can be uniquely identified by FIPS and year columns. We create following tibbles 
+
+1. education: contains educational attainments of a specific county, fips, year, percent_four_plus_years_college, percent_has_some_college, percent_hs_diploma, percent_less than_hs_diploma
+2. fips: contains fips info. FIPS, County, State
+3. rural_urban_code: rural urban code and fips relationship. 
+4. rural_urban_code_contains: textual description. rural_urban_cont_code, description
+
+```{r}
+
+education <- edu_spread_sep[, -which(names(edu_spread_sep) %in% c("county", "state", "rural_urban_cont_code", "description"))]
+
+temp_ruc <- group_by(edu_spread_sep, fips, rural_urban_cont_code) %>% summarize(count=n())
+rural_urban_code <- temp_ruc[, -which(names(temp_ruc) %in% c("count"))]
+
+temp_fips <- group_by(edu_spread_sep, fips, county, state) %>% summarize(count=n())
+fips <- temp_fips[, -which(names(temp_fips) %in% c("count"))]
+
+temp_desc <- group_by(edu_spread_sep, rural_urban_cont_code, description) %>% summarize(count=n())
+rural_urban_code_contains <- temp_desc[, -which(names(temp_desc) %in% c("count"))]
+
+```
+3. (5 points) Answer the following questions about your tibbles: The fips column in the education table - is it a foreign or a primary key for the education tibble?  What is the primary key for your education tibble? The rural_urban code tibble should only contain 9 rows. What is its primary key?
+
+Answer:
+
+The "FIPS" column in education tibble is a foreign key. As "FIPS" is a primary key in "fips" tibble, in another table it will be a foreign key. In education tibble, combination of "FIPS" and "YEAR" column uniqually identifies each row, and hence are the primary key combined.
+
+In "rural_urban_code" tibble, "rural_urban_cont_code" uniqually identifies each row and hence is the primary key.
+
+
+4. (50 points) Write expressions to answer the following queries: 
++ 4.0 In the year 1970, what is the percent of the population not attaining a high school diploma for the Nantucket county in Massachusetts? What about the year 2015?
+
+Answer: We select fips, year, percent_less than_hs_diploma from "education" tibble, where state = "MA" and county = "Nantucket" for year = 1970
+```{r}
+
+out0_1970 <- education %>% select("fips", "year", "percent_less than_hs_diploma") %>% left_join(fips, by = "fips") %>% filter(county=="Nantucket", state=="MA", year==1970)
+out0_2015 <- education %>% select("fips", "year", "percent_less than_hs_diploma") %>% left_join(fips, by = "fips") %>% filter(county=="Nantucket", state=="MA", year==2015)
+
+out0 <- str_c("For year 1970: ", out0_1970["percent_less than_hs_diploma"], "% and for year 2015: ",out0_2015["percent_less than_hs_diploma"], "%")
+print(out0)
+
+```
++ 4.1 What is the average percentage not receiving a high school diploma for the counties in Alabama for the year 2015?
+
+Answer: We join education and fips, and select percent_less than_hs_diploma where state = "AL" and year = 2015. We group by each state and finally get the mean through summarize.
+```{r}
+out1_2015 <- education %>% select("fips", "year", "percent_less than_hs_diploma") %>% left_join(fips, by = "fips") %>% filter(state=="AL", year==2015) %>% group_by(state) %>% summarize(avg_per = mean(`percent_less than_hs_diploma`, na.rm = TRUE))
+
+out1 <- str_c("For year 2015, Alabama has `percent_less than_hs_diploma`: ", out1_2015["avg_per"], "%")
+print(out1)
+```
++ 4.2 What is the average percentage of college graduates for the counties in the state of Massachusetts for the year 2015?
+
+Answer: We take the join between education and fips, where state = "MA" and year = 2015. We group by each state and summarize the rows.
+
+```{r}
+out2_2015 <- education %>% select("fips", "year", "percent_has_some_college") %>% left_join(fips, by = "fips") %>% filter(state=="MA", year==2015) %>% group_by(state) %>% summarize(avg_per = mean(`percent_has_some_college`, na.rm = TRUE))
+
+out2 <- str_c("For year 2015, MA has `percent_has_some_college`: ", out2_2015["avg_per"], "%")
+print(out2)
+```
++ 4.3 Determine the average percentage of population not attaining a high school diploma for the counties in Alabama for each year within the dataset. The result should return the calendar year and the average percentage not attaining a high school diploma for that year.
+
+Answer: We take the left join between fips and education, where state = "AL". We group by each year and summarize to get mean of percent_less than_hs_diploma for each year.
+
+```{r}
+out3_alabama <- education %>% select("fips", "year", "percent_less than_hs_diploma") %>% left_join(fips, by = "fips") %>% filter(state=="AL") %>% group_by(year) %>% summarize(avg_per = mean(`percent_less than_hs_diploma`, na.rm = TRUE))
+
+print(out3_alabama)
+```
++ 4.4 What is the most common rural_urban code for the U.S. counties?
+
+Answer: We group by all the rural_urban_cont_code values in rural_urban_code tibble, and count number of times they appear. We pick the maximum value using top_n(1). We use left join on this final tibble on "rural_urban_cont_code" tibble to get the description of this code. We observe that "Urban population of 2,500 to 9,999 adjaent to a metro area" is the most occuring code.
+
+```{r}
+
+code_count <- rural_urban_code %>% group_by(rural_urban_cont_code) %>% summarize(count=n()) %>% top_n(1) %>% left_join(rural_urban_code_contains, by = "rural_urban_cont_code")
+
+print(code_count)
+
+```
++ 4.5 Which counties have not been coded with a rural urban code? Return a result that contains two fields: County, State for the counties that have not been assigned a rural urban code. Do not return duplicate values in the result. Order the result alphabetically by state. What does this result set represent?
+
+Answer: We look for all the "NULL" values in rural_urban_cont_code column of rural_urban_code tibble. Once we find the desired rows, we left join the result with fips tibble to get county and state name by value in ips column. We use arrange() to sort the tibble output by "state". Finally we output the county and state of tibble.
+
+The output tibble represents all the counties which has "NULL" in their column values, which represents missing values.
+```{r}
+out5_fips <- rural_urban_code %>% filter(rural_urban_cont_code == "NULL") %>% left_join(fips, by="fips") %>% select(county, state) %>% arrange(state)
+
+print(out5_fips[, c("county", "state")])
+
+```
+
++ 4.6 What is the minimal percentage of college graduates for the counties in the state of Mississippi for the year 2010? What does the result represent?
+
+Answer: As 2010 does not exist in database, I am considering year 2015. We select all rows in education for column "percent_has_some_college", where state = MS and year = 2015. We arrange them in ascending order of percent values. Finally we output the first row to get the minimum value. We observe that in the year 2015, Issaquena county in Mississippi has the lowest percent of people graduating from college.This means that Issaquena county has most people graduating and hence developed in that sense.
+```{r}
+out6_2015 <- education %>% select(fips, year, percent_has_some_college) %>% left_join(fips, by = "fips") %>% filter(state=="MS", year==2015) %>% arrange(percent_has_some_college)
+
+out6_2015[1,]
+```
++ 4.7 In the year 2015, which fip counties, are above the average unemployment rate? Provide the county name, U.S. state name and the unemployment rate in the result. Sort in descending order by unemployment rate. 
+
+Answer: We first calculate average percent unemployment rate. For all rows in unemployment dataset, get the rows where year is 2015. We left join the resulting dataset with fips dataset to get the county name and state names. We calculate average by summing all the percent unemployed and dividing with number of rows. Finally we filter all the dataset where percent_unemployed is greater than this average.
+```{r}
+
+temp7 <- filter(unemp, year==2015) %>% left_join(fips, by="fips") %>% select(county, state, percent_unemployed) %>% arrange(desc(percent_unemployed))
+
+avg_unemp = sum(temp7["percent_unemployed"])/nrow(temp7)
+
+out7 <- filter(temp7, percent_unemployed > avg_unemp)
+
+print(out7)
+```
+
++ 4.8 In the year 2015, which fip counties, U.S. states contain a higher percentage of unemployed citizens than the percentage of college graduates? List the county name and the state name. Order the result alphabetically by state.
+
+Answer: We first left join unemployment dataset with education dataset by fips values for all the rows in unemployment dataset where year=2015, and arrange them alphabetically by State. Finally, in the output dataset, we filter all the rows where percent_unemployed value is greater than percent_has_some_college value in each row.
+
+```{r}
+
+out8_df <- filter(unemp, year==2015) %>% left_join(education, by="fips") %>% left_join(fips, by="fips") %>% select("county", "state", "percent_unemployed", "percent_has_some_college") %>% arrange(state)
+
+head(out8_df[out8_df$percent_unemployed > out8_df$percent_has_some_college, c("county", "state")], 20)
+
+```
+
++ 4.9 Return the county, U.S. state and year that contains the highest percentage of college graduates in this dataset?
+
+Answer: We simply join education and fips dataset based on fips value. Finally we arrange the value in descending order of percent_has_some_college and show the first value using top_n(1)
+We see that New Hampshire state has most number of graduates with some college degree.
+
+```{r}
+
+education %>% left_join(fips, by="fips") %>% select(county, state, year, percent_has_some_college) %>% arrange(desc(percent_has_some_college)) %>% top_n(1)
+
+```
+
+5. (10 points) _Open question_: explore the unemployment rate and the percent not attaining a high school diploma over the time period in common for the two datasets. What can you discover? Create a plot that supports your discovery.
+
+Answer: We want to infer the relationship between unemployment rate and high school diploma. To do that, we create a dataframe that has all the values from unemployment and education tibbles. We join both tibbles based on "year" and "fips" columns. We group all rows by "state" to observe pattern across states. Next we sort the output tibble using arrange() by percent unemployed. We gather top 20 records, where unemployment rate is highest to observe the trend. Before plotting, we melt the dataset to have a catagory.
+
+Finally we have a scatter plot which explains that has the percentage of non high school diploma goes high, unemployment rate in different states also goes high, except for in Texas.
+
+```{r}
+mix_df <- unemp %>% left_join(education, by=c("fips", "year")) %>% filter(percent_has_some_college != "") %>% select(fips, year, percent_unemployed, `percent_less than_hs_diploma`) %>% left_join(fips, by="fips") %>% group_by(state) %>% summarize(mean_per_unem = mean(percent_unemployed), mean_per_no_hs = mean(`percent_less than_hs_diploma`)) %>% arrange(desc(mean_per_unem))
+```
+
+```{r}
+library(ggplot2)
+
+mix_df_5 <- mix_df %>% top_n(20) 
+plot_df <- mix_df_5 %>% gather("mean_per_unem", "mean_per_no_hs", key="statistic", value="value")
+
+
+ggplot(data = plot_df) + 
+  geom_smooth(mapping = aes(x = state, y = value, group= statistic))
+
+ggplot(data = plot_df) + 
+  geom_point(mapping = aes(x = state, y = value, color = statistic)) +
+  geom_smooth(mapping = aes(x = state, y = value, color = statistic))
+```
+
+The above plot gives information about year 2015 only. Due to limitation in dataset, it is not possible to see how the education and unemployment trend has been over the years. The unemployment dataset and education dataset has only 2015 year in common, which does not give us much information.
+
